@@ -1,0 +1,19 @@
+
+{
+  "actorSpecification": 1,
+  "name": "bh-imoveis-scraper",
+  "title": "Coleta de imóveis por região de Belo Horizonte (Zap/VivaReal)",
+  "description": "Scraper com Playwright para coletar imóveis filtrando por bairros de BH, com paginação e controle de custo.",
+  "version": "1.0.0",
+  "platform": "apify",
+  "builds": [
+    {
+      "src": "./",
+      "useCache": true
+    }
+  ],
+  "input": "./input_schema.json",
+  "nodeJs": {
+    "version": "18"
+  }
+}

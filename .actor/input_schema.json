@@ -1,7 +1,9 @@
 
 {
   "title": "Configuração da coleta",
+  "description": "Defina portal, bairros e filtros para coletar imóveis por região de Belo Horizonte.",
   "type": "object",
+  "schemaVersion": 1,
   "properties": {
     "portal": {
       "title": "Portal",
@@ -13,6 +15,7 @@
       "title": "Bairros",
       "type": "array",
       "items": { "type": "string" },
+      "editor": "stringList",
       "default": ["Savassi", "Lourdes", "Funcionários"]
     },
     "tipoImovel": {
@@ -30,21 +33,25 @@
     "precoMin": {
       "title": "Preço mínimo",
       "type": "number",
+      "editor": "number",
       "default": 0
     },
     "precoMax": {
       "title": "Preço máximo",
       "type": "number",
+      "editor": "number",
       "default": 0
     },
     "quartosMin": {
       "title": "Quartos (mínimo)",
       "type": "number",
+      "editor": "number",
       "default": 0
     },
     "banheirosMin": {
       "title": "Banheiros (mínimo)",
       "type": "number",
+      "editor": "number",
       "default": 0
     },
     "usarProxy": {
@@ -55,6 +62,7 @@
     "maxPagesPorBairro": {
       "title": "Máximo de páginas por bairro",
       "type": "number",
+      "editor": "number",
       "default": 10
     },
     "headless": {
