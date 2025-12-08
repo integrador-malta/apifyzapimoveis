@@ -4,10 +4,13 @@
   "version": "1.0.0",
   "type": "module",
   "dependencies": {
-    "apify": "^3.1.11",
-    "@apify/timeout": "^0.1.0"
+    "apify": "^3.4.5",
+    "crawlee": "^3.13.10",
+    "playwright": "^1.49.0",
+    "@apify/timeout": "^0.3.2"
   },
   "scripts": {
-    "start": "node ./src/main.js"
+    "start": "node ./src/main.js",
+    "postinstall": "npx playwright install --with-deps || echo 'Skipping playwright install in Docker'"
   }
 }
