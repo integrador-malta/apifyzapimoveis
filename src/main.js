@@ -1,7 +1,7 @@
 
 // src/main.js
 import { Actor, log } from 'apify';
-import { PlaywrightCrawler } from 'crawlee';
+import { PlaywrightCrawler, sleep } from 'crawlee';
 import { extractListings } from './helpers/extract.js';
 
 await Actor.main(async () => {
@@ -51,7 +51,7 @@ await Actor.main(async () => {
         log.info('Fazendo scroll para carregar conteúdo...');
         for (let i = 0; i < 3; i++) {
           await page.evaluate(() => window.scrollBy(0, window.innerHeight));
-          await Actor.sleep(1000);
+          await sleep(1000);
         }
       },
     ],
