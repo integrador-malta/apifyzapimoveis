@@ -29,6 +29,7 @@ await Actor.main(async () => {
   const crawler = new PlaywrightCrawler({
     requestQueue,
     maxConcurrency: 1,
+    maxRequestRetries: 2,
     proxyConfiguration: usarProxy ? await Actor.createProxyConfiguration({ groups: ['RESIDENTIAL'] }) : null,
     headless,
     navigationTimeoutSecs: 90,
@@ -110,12 +111,14 @@ await Actor.main(async () => {
         if (pageNum < maxPagesPorBairro) {
           const nextUrl = tryBuildNextPageUrl(request.url, pageNum + 1);
           if (nextUrl) {
+            log.info(`➜ Adicionando página ${pageNum + 1}`);
             await requestQueue.addRequest({
               url: nextUrl,
               userData: { label: 'LIST', bairro, pageNum: pageNum + 1 },
             });
-            log.info(`➜ Adicionando página ${pageNum + 1}`);
           }
+        } else {
+          log.info(`✓ Limite de ${maxPagesPorBairro} páginas atingido para ${bairro}`);
         }
       } catch (err) {
         log.error(`Erro ao processar página: ${err.message}`);
@@ -124,9 +127,17 @@ await Actor.main(async () => {
       }
     },
     failedRequestHandler: async ({ request, error }) => {
-      log.error(`✗ Falha na URL: ${request.url}`);
+      const { pageNum } = request.userData;
+      log.error(`✗ Falha na URL (página ${pageNum}): ${request.url}`);
       log.error(`Erro: ${error.message}`);
-      await Actor.pushData({ failedUrl: request.url, reason: 'request_failed', error: error.message });
+      // Registra falha mas não re-tenta mais (maxRequestRetries já controla)
+      await Actor.pushData({ 
+        failedUrl: request.url, 
+        reason: 'request_failed', 
+        error: error.message,
+        pageNum,
+        retryCount: request.retryCount,
+      });
     },
   });
 
