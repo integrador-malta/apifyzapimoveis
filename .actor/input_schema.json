@@ -8,16 +8,16 @@
     "portal": {
       "title": "Portal",
       "type": "string",
-      "enum": ["zapimoveis", "vivareal"],
-      "default": "vivareal",
-      "description": "Selecione o portal de origem dos imóveis."
+      "enum": ["zapimoveis"],
+      "default": "zapimoveis",
+      "description": "Portal de origem dos imóveis (Zap Imóveis)."
     },
     "bairros": {
       "title": "Bairros",
       "type": "array",
       "items": { "type": "string" },
       "editor": "stringList",
-      "default": ["Savassi", "Lourdes", "Funcionários"],
+      "default": ["Barreiro"],
       "description": "Lista de bairros/regiões em Belo Horizonte para filtrar a busca."
     },
     "tipoImovel": {
@@ -38,15 +38,15 @@
       "title": "Preço mínimo",
       "type": "number",
       "editor": "number",
-      "default": 0,
-      "description": "Valor mínimo (R$) para o filtro de preço. Use 0 para não aplicar."
+      "default": 100000,
+      "description": "Valor mínimo (R$) para o filtro de preço."
     },
     "precoMax": {
       "title": "Preço máximo",
       "type": "number",
       "editor": "number",
-      "default": 0,
-      "description": "Valor máximo (R$) para o filtro de preço. Use 0 para não aplicar."
+      "default": 700000,
+      "description": "Valor máximo (R$) para o filtro de preço."
     },
     "quartosMin": {
       "title": "Quartos (mínimo)",
