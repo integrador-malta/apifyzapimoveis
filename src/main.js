@@ -35,7 +35,6 @@ await Actor.main(async () => {
     requestHandlerTimeoutSecs: 180,
     browserPoolOptions: {
       useFingerprints: true,
-      maxBrowsersPerIncognitoContext: 1,
     },
     sessionPoolOptions: {
       maxPoolSize: 3,
