@@ -31,10 +31,17 @@ await Actor.main(async () => {
     maxConcurrency: 1,
     proxyConfiguration: usarProxy ? await Actor.createProxyConfiguration({ groups: ['RESIDENTIAL'] }) : null,
     headless,
-    navigationTimeoutSecs: 60,
-    requestHandlerTimeoutSecs: 120,
+    navigationTimeoutSecs: 90,
+    requestHandlerTimeoutSecs: 180,
     browserPoolOptions: {
       useFingerprints: true,
+      maxBrowsersPerIncognitoContext: 1,
+    },
+    sessionPoolOptions: {
+      maxPoolSize: 3,
+      sessionOptions: {
+        maxUsageCount: 5,
+      },
     },
     preNavigationHooks: [
       async ({ page }) => {
@@ -51,14 +58,15 @@ await Actor.main(async () => {
     postNavigationHooks: [
       async ({ page }) => {
         log.info('Aguardando carregamento da página...');
-        await page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => {
-          log.warning('Timeout no networkidle');
+        // Aguarda recursos críticos em vez de networkidle completo
+        await page.waitForLoadState('domcontentloaded', { timeout: 20000 }).catch(() => {
+          log.warning('Timeout no domcontentloaded');
         });
         
         log.info('Fazendo scroll para carregar conteúdo...');
-        for (let i = 0; i < 3; i++) {
+        for (let i = 0; i < 2; i++) {
           await page.evaluate(() => window.scrollBy(0, window.innerHeight));
-          await sleep(1000);
+          await sleep(500);
         }
       },
     ],
@@ -72,12 +80,12 @@ await Actor.main(async () => {
         const bodyText = await page.evaluate(() => document.body.innerText);
         log.info(`Tamanho do conteúdo: ${bodyText.length} caracteres`);
 
-        // Esperar seletor aparecer
+        // Esperar seletor aparecer (mais curto agora)
         log.info('Procurando cards de imóveis...');
-        await page.waitForSelector('[data-testid="property-card"], article, .property-card', {
-          timeout: 30000,
+        await page.waitForSelector('li[data-cy="rp-property-cd"]', {
+          timeout: 15000,
         }).catch(() => {
-          log.warning('Nenhum seletor de card encontrado');
+          log.warning('Seletor rp-property-cd não encontrado (pode ser 403 ou bloqueio)');
         });
 
         const items = await extractListings(page, 'zapimoveis');
