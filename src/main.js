@@ -39,13 +39,20 @@ await Actor.main(async () => {
     preNavigationHooks: [
       async ({ page }) => {
         await page.setViewportSize({ width: 1280, height: 800 });
+
+        // Define headers para reduzir bloqueios e parecer navegador real
+        const context = page.context();
+        await context.setExtraHTTPHeaders({
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+        });
       },
     ],
     postNavigationHooks: [
       async ({ page }) => {
         log.info('Aguardando carregamento da página...');
         await page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => {
-          log.warn('Timeout no networkidle');
+          log.warning('Timeout no networkidle');
         });
         
         log.info('Fazendo scroll para carregar conteúdo...');
@@ -70,7 +77,7 @@ await Actor.main(async () => {
         await page.waitForSelector('[data-testid="property-card"], article, .property-card', {
           timeout: 30000,
         }).catch(() => {
-          log.warn('Nenhum seletor de card encontrado');
+          log.warning('Nenhum seletor de card encontrado');
         });
 
         const items = await extractListings(page, 'zapimoveis');
