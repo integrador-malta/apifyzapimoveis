@@ -84,7 +84,7 @@ await Actor.main(async () => {
         log.info(`✓ Encontrados ${items.length} imóveis na página ${pageNum}`);
 
         if (items.length === 0) {
-          log.warn('Nenhum item extraído. Verificando estrutura HTML...');
+          log.warning('Nenhum item extraído. Verificando estrutura HTML...');
           const htmlSnapshot = await page.evaluate(() => {
             const cards = document.querySelectorAll('[data-testid*="property"], article, .property-card');
             return {

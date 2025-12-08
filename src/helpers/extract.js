@@ -8,8 +8,8 @@ export async function extractListings(page, portal) {
   
   let cards;
   if (portal === 'zapimoveis') {
-    // Seletores específicos para Zap Imóveis
-    cards = page.locator('a[data-testid="property-card"], [data-testid="search-result"], .property-card');
+    // Seletores específicos para Zap Imóveis (resultado de busca)
+    cards = page.locator('li[data-cy="rp-property-cd"]');
   } else {
     // Viva Real e outros
     cards = page.locator('article, .property-card, [data-testid*="property-card"]');
@@ -30,21 +30,52 @@ export async function extractListings(page, portal) {
       let title, price, address, area, rooms, baths, parking, detailUrl;
 
       if (portal === 'zapimoveis') {
-        // Zap Imóveis - estrutura específica
-        title = await card.locator('[data-testid="property-card-title"], h2, h3').first().textContent().catch(() => null);
-        price = await card.locator('[data-testid*="price"], span:has-text("R$")').first().textContent().catch(() => null);
-        address = await card.locator('[data-testid*="address"], .property-card__address, p').first().textContent().catch(() => null);
-        
-        // Características (quarto, banheiro, vaga, m²)
-        const features = await card.locator('[data-testid*="feature"], .property-card__features li, span[data-testid*="text"]').allTextContents().catch(() => []);
-        const featureText = features.join(' ');
-        
-        rooms = featureText.match(/(\d+)\s*quarto/i)?.[1] || null;
-        baths = featureText.match(/(\d+)\s*banhe/i)?.[1] || null;
-        parking = featureText.match(/(\d+)\s*vag/i)?.[1] || null;
-        area = featureText.match(/(\d+)\s*m²/i)?.[1] || null;
+        // Zap Imóveis - estrutura específica de ranking
+        const anchor = card.locator('a[href]').first();
 
-        detailUrl = await card.getAttribute('href').catch(() => null);
+        title = await card
+          .locator('[data-cy="rp-cardProperty-location-txt"]')
+          .first()
+          .innerText()
+          .catch(() => null);
+
+        price = await card
+          .locator('[data-cy="rp-cardProperty-price-txt"] p')
+          .first()
+          .innerText()
+          .catch(() => null);
+
+        address = await card
+          .locator('[data-cy="rp-cardProperty-street-txt"]')
+          .first()
+          .innerText()
+          .catch(() => null);
+
+        area = await card
+          .locator('[data-cy="rp-cardProperty-propertyArea-txt"]')
+          .first()
+          .innerText()
+          .catch(() => null);
+
+        rooms = await card
+          .locator('[data-cy="rp-cardProperty-bedroomQuantity-txt"]')
+          .first()
+          .innerText()
+          .catch(() => null);
+
+        baths = await card
+          .locator('[data-cy="rp-cardProperty-bathroomQuantity-txt"]')
+          .first()
+          .innerText()
+          .catch(() => null);
+
+        parking = await card
+          .locator('[data-cy="rp-cardProperty-parkingSpacesQuantity-txt"]')
+          .first()
+          .innerText()
+          .catch(() => null);
+
+        detailUrl = await anchor.getAttribute('href').catch(() => null);
       } else {
         // Viva Real e outros - seletores genéricos
         title = await card.locator('h2, h3, .property-card__title').first().textContent().catch(() => null);
@@ -83,7 +114,7 @@ function clean(str) {
   // Remove múltiplos espaços e caracteres especiais
   return str
     .replace(/\s+/g, ' ')
-    .replace(/[^\w\s,.-]/g, '') // Remove caracteres especiais
+    .replace(/[\u200B-\u200D\uFEFF]/g, '') // Remove caracteres invisíveis
     .trim() || null;
 }
 
