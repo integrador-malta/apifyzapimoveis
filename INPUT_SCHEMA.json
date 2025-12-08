@@ -1,0 +1,67 @@
+
+{
+  "title": "Configuração da coleta",
+  "type": "object",
+  "properties": {
+    "portal": {
+      "title": "Portal",
+      "type": "string",
+      "enum": ["zapimoveis", "vivareal"],
+      "default": "vivareal"
+    },
+    "bairros": {
+      "title": "Bairros",
+      "type": "array",
+      "items": { "type": "string" },
+      "default": ["Savassi", "Lourdes", "Funcionários"]
+    },
+    "tipoImovel": {
+      "title": "Tipo de imóvel",
+      "type": "string",
+      "enum": ["apartamento", "casa", "studio", "kitnet", "terreno", "sala-comercial", "cobertura", "todos"],
+      "default": "apartamento"
+    },
+    "negocio": {
+      "title": "Negócio",
+      "type": "string",
+      "enum": ["venda", "aluguel"],
+      "default": "venda"
+    },
+    "precoMin": {
+      "title": "Preço mínimo",
+      "type": "number",
+      "default": 0
+    },
+    "precoMax": {
+      "title": "Preço máximo",
+      "type": "number",
+      "default": 0
+    },
+    "quartosMin": {
+      "title": "Quartos (mínimo)",
+      "type": "number",
+      "default": 0
+    },
+    "banheirosMin": {
+      "title": "Banheiros (mínimo)",
+      "type": "number",
+      "default": 0
+    },
+    "usarProxy": {
+      "title": "Usar proxy do Apify",
+      "type": "boolean",
+      "default": true
+    },
+    "maxPagesPorBairro": {
+      "title": "Máximo de páginas por bairro",
+      "type": "number",
+      "default": 10
+    },
+    "headless": {
+      "title": "Browser headless",
+      "type": "boolean",
+      "default": true
+    }
+  },
+  "required": ["portal", "bairros", "negocio"]
+}
