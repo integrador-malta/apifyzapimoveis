@@ -9,7 +9,8 @@
   "builds": [
     {
       "src": "./",
-      "useCache": true
+      "useCache": true,
+      "dockerfile": "./Dockerfile"
     }
   ],
   "input": "./input_schema.json",
