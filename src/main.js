@@ -22,10 +22,10 @@ await Actor.main(async () => {
   for (const bairro of bairros) {
     var testUrl = '';
     if(bairro == 'sta-helena'){
-      testUrl = `https://www.zapimoveis.com.br/venda/apartamentos/mg+belo-horizonte++sta-helena/?transacao=venda&onde=%2CMinas+Gerais%2CBelo+Horizonte%2C%2CSanta+Helena%2C%2C%2Cneighborhood%2CBR%3EMinas+Gerais%3ENULL%3EBelo+Horizonte%3EBarrios%3ESanta+Helena%2C-19.977143%2C-44.014492%2C&tipos=apartamento_residencial%2Ccasa_residencial&precoMaximo=700000&precoMinimo=100000&precoMaximoCondo=1200&precoMinimoCondo=100&areaMaxima=150&areaMinima=20`;
+      testUrl = `https://www.zapimoveis.com.br/venda/apartamentos/mg+belo-horizonte++sta-helena/?transacao=venda&onde=%2CMinas+Gerais%2CBelo+Horizonte%2C%2CSanta+Helena%2C%2C%2Cneighborhood%2CBR%3EMinas+Gerais%3ENULL%3EBelo+Horizonte%3EBarrios%3ESanta+Helena%2C-19.977143%2C-44.014492%2C&tipos=apartamento_residencial`;
     }else{
       
-      testUrl = `https://www.zapimoveis.com.br/venda/apartamentos/mg+belo-horizonte++${bairro.toLowerCase()}/?transacao=venda&onde=%2CMinas+Gerais%2CBelo+Horizonte%2C%2C${bairro}%2C%2C%2Cneighborhood%2CBR%3EMinas+Gerais%3ENULL%3EBelo+Horizonte%3EBarrios%3E${bairro}%2C-19.977143%2C-44.014492%2C&tipos=apartamento_residencial%2Ccasa_residencial&precoMaximo=700000&precoMinimo=100000&precoMaximoCondo=1200&precoMinimoCondo=100&areaMaxima=150&areaMinima=20`;
+      testUrl = `https://www.zapimoveis.com.br/venda/apartamentos/mg+belo-horizonte++${bairro.toLowerCase()}/?transacao=venda&onde=%2CMinas+Gerais%2CBelo+Horizonte%2C%2C${bairro}%2C%2C%2Cneighborhood%2CBR%3EMinas+Gerais%3ENULL%3EBelo+Horizonte%3EBarrios%3E${bairro}%2C-19.977143%2C-44.014492%2C&tipos=apartamento_residencial`;
     }
     /* const testUrl = `https://www.zapimoveis.com.br/venda/apartamentos/mg+belo-horizonte++${bairro}/?transacao=venda&onde=%2CMinas+Gerais%2CBelo+Horizonte%2C%2C${bairro}%2C%2C%2Cneighborhood%2CBR%3EMinas+Gerais%3ENULL%3EBelo+Horizonte%3EBarrios%3E${bairro}%2C-19.977143%2C-44.014492%2C&tipos=apartamento_residencial%2Ccasa_residencial&precoMaximo=700000&precoMinimo=100000&precoMaximoCondo=1200&precoMinimoCondo=100&areaMaxima=150&areaMinima=20`;
      */log.info(`Adicionando à fila: ${testUrl}`);
