@@ -7,29 +7,23 @@ import { extractListings } from './helpers/extract.js';
 await Actor.main(async () => {
   const input = await Actor.getInput();
   const {
-    bairros = ['barreiro','diamante', 'sta-helena', 'milionarios', 'tirol', 'cardoso'],
+    links = [],
     usarProxy = true,
     maxPagesPorBairro = 10,
     headless = true,
   } = input || {};
 
-  log.info(`Bairros: ${bairros.join(', ')}`);
-  log.info(`Testando com URL fixa do Zap Imóveis`);
+  if (!links.length) {
+    throw new Error('Forneça ao menos um link em input.links');
+  }
+
+  log.info(`Links recebidos: ${links.length}`);
 
   const requestQueue = await Actor.openRequestQueue();
 
-  // URL fixa para teste
-  for (const bairro of bairros) {
-    var testUrl = '';
-    if(bairro == 'sta-helena'){
-      testUrl = `https://www.zapimoveis.com.br/venda/apartamentos/mg+belo-horizonte++sta-helena/?transacao=venda&onde=%2CMinas+Gerais%2CBelo+Horizonte%2C%2CSanta+Helena%2C%2C%2Cneighborhood%2CBR%3EMinas+Gerais%3ENULL%3EBelo+Horizonte%3EBarrios%3ESanta+Helena%2C-19.977143%2C-44.014492%2C&tipos=apartamento_residencial`;
-    }else{
-      
-      testUrl = `https://www.zapimoveis.com.br/venda/apartamentos/mg+belo-horizonte++${bairro.toLowerCase()}/?transacao=venda&onde=%2CMinas+Gerais%2CBelo+Horizonte%2C%2C${bairro}%2C%2C%2Cneighborhood%2CBR%3EMinas+Gerais%3ENULL%3EBelo+Horizonte%3EBarrios%3E${bairro}%2C-19.977143%2C-44.014492%2C&tipos=apartamento_residencial`;
-    }
-    /* const testUrl = `https://www.zapimoveis.com.br/venda/apartamentos/mg+belo-horizonte++${bairro}/?transacao=venda&onde=%2CMinas+Gerais%2CBelo+Horizonte%2C%2C${bairro}%2C%2C%2Cneighborhood%2CBR%3EMinas+Gerais%3ENULL%3EBelo+Horizonte%3EBarrios%3E${bairro}%2C-19.977143%2C-44.014492%2C&tipos=apartamento_residencial%2Ccasa_residencial&precoMaximo=700000&precoMinimo=100000&precoMaximoCondo=1200&precoMinimoCondo=100&areaMaxima=150&areaMinima=20`;
-     */log.info(`Adicionando à fila: ${testUrl}`);
-    await requestQueue.addRequest({ url: testUrl, userData: { label: 'LIST', bairro, pageNum: 1 } });
+  for (const seedUrl of links) {
+    log.info(`Adicionando à fila: ${seedUrl}`);
+    await requestQueue.addRequest({ url: seedUrl, userData: { label: 'LIST', seedUrl, pageNum: 1 } });
   }
 
   const crawler = new PlaywrightCrawler({
@@ -77,9 +71,10 @@ await Actor.main(async () => {
       },
     ],
     requestHandler: async ({ request, page }) => {
-      const { bairro, pageNum } = request.userData;
+      const { seedUrl, pageNum } = request.userData;
 
-      log.info(`Processando: ${bairro} | Página ${pageNum}`);
+      log.info(`Processando seed: ${seedUrl} | Página ${pageNum}`);
+      log.info(`URL: ${request.url}`);
 
       try {
         // Verificar conteúdo da página
@@ -110,21 +105,22 @@ await Actor.main(async () => {
         }
 
         for (const item of items) {
-          await Actor.pushData({ ...item, bairro, pageNum });
+          await Actor.pushData({ ...item, seedUrl, pageNum });
         }
 
         // Tentar próxima página
         if (pageNum < maxPagesPorBairro) {
           const nextUrl = tryBuildNextPageUrl(request.url, pageNum + 1);
           if (nextUrl) {
-            log.info(`➜ Adicionando página ${pageNum + 1}`);
+            log.info(`➜ Adicionando próxima página do seed (${pageNum + 1})`);
+            log.info(`  URL próxima página: ${nextUrl}`);
             await requestQueue.addRequest({
               url: nextUrl,
-              userData: { label: 'LIST', bairro, pageNum: pageNum + 1 },
+              userData: { label: 'LIST', seedUrl, pageNum: pageNum + 1 },
             });
           }
         } else {
-          log.info(`✓ Limite de ${maxPagesPorBairro} páginas atingido para ${bairro}`);
+          log.info(`✓ Limite de ${maxPagesPorBairro} páginas atingido para o seed ${seedUrl}`);
         }
       } catch (err) {
         log.error(`Erro ao processar página: ${err.message}`);
