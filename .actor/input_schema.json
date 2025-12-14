@@ -1,66 +1,17 @@
 
 {
   "title": "Configuração da coleta",
-  "description": "Defina portal, bairros e filtros para coletar imóveis por região de Belo Horizonte.",
+  "description": "Forneça links de pesquisa do Zap Imóveis para coletar imóveis.",
   "type": "object",
   "schemaVersion": 1,
   "properties": {
-    "portal": {
-      "title": "Portal",
-      "type": "string",
-      "enum": ["zapimoveis"],
-      "default": "zapimoveis",
-      "description": "Portal de origem dos imóveis (Zap Imóveis)."
-    },
-    "bairros": {
-      "title": "Bairros",
+    "links": {
+      "title": "Links de pesquisa",
       "type": "array",
       "items": { "type": "string" },
       "editor": "stringList",
-      "default": ["Barreiro"],
-      "description": "Lista de bairros/regiões em Belo Horizonte para filtrar a busca."
-    },
-    "tipoImovel": {
-      "title": "Tipo de imóvel",
-      "type": "string",
-      "enum": ["apartamento", "casa", "studio", "kitnet", "terreno", "sala-comercial", "cobertura", "todos"],
-      "default": "apartamento",
-      "description": "Tipo principal de imóvel que será buscado."
-    },
-    "negocio": {
-      "title": "Negócio",
-      "type": "string",
-      "enum": ["venda", "aluguel"],
-      "default": "venda",
-      "description": "Modalidade de negociação (venda ou aluguel)."
-    },
-    "precoMin": {
-      "title": "Preço mínimo",
-      "type": "number",
-      "editor": "number",
-      "default": 100000,
-      "description": "Valor mínimo (R$) para o filtro de preço."
-    },
-    "precoMax": {
-      "title": "Preço máximo",
-      "type": "number",
-      "editor": "number",
-      "default": 700000,
-      "description": "Valor máximo (R$) para o filtro de preço."
-    },
-    "quartosMin": {
-      "title": "Quartos (mínimo)",
-      "type": "number",
-      "editor": "number",
-      "default": 0,
-      "description": "Número mínimo de quartos. Use 0 para não aplicar."
-    },
-    "banheirosMin": {
-      "title": "Banheiros (mínimo)",
-      "type": "number",
-      "editor": "number",
-      "default": 0,
-      "description": "Número mínimo de banheiros. Use 0 para não aplicar."
+      "default": [],
+      "description": "Lista de URLs de pesquisa do Zap Imóveis. Cole aqui os links completos com filtros já aplicados."
     },
     "usarProxy": {
       "title": "Usar proxy do Apify",
@@ -69,11 +20,11 @@
       "description": "Habilita o proxy do Apify (recomendado para reduzir bloqueios)."
     },
     "maxPagesPorBairro": {
-      "title": "Máximo de páginas por bairro",
+      "title": "Máximo de páginas por link",
       "type": "number",
       "editor": "number",
       "default": 10,
-      "description": "Limite de paginação por bairro para controlar custo e tempo de execução."
+      "description": "Limite de paginação por link para controlar custo e tempo de execução."
     },
     "headless": {
       "title": "Browser headless",
@@ -82,5 +33,5 @@
       "description": "Executa o navegador em modo headless (sem UI)."
     }
   },
-  "required": ["portal", "bairros", "negocio"]
+  "required": ["links"]
 }
