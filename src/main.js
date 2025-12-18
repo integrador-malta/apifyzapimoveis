@@ -108,17 +108,21 @@ await Actor.main(async () => {
           await Actor.pushData({ ...item, seedUrl, pageNum });
         }
 
-        // Tentar próxima página
-        if (pageNum < maxPagesPorBairro) {
+        // Tentar próxima página (somente se página cheia indica mais resultados)
+        const hasMorePages = items.length === 30; // Zap Imóveis retorna 30 itens por página
+        
+        if (hasMorePages && pageNum < maxPagesPorBairro) {
           const nextUrl = tryBuildNextPageUrl(request.url, pageNum + 1);
           if (nextUrl) {
-            log.info(`➜ Adicionando próxima página do seed (${pageNum + 1})`);
+            log.info(`➜ Adicionando próxima página do seed (${pageNum + 1}) - página cheia detectada`);
             log.info(`  URL próxima página: ${nextUrl}`);
             await requestQueue.addRequest({
               url: nextUrl,
               userData: { label: 'LIST', seedUrl, pageNum: pageNum + 1 },
             });
           }
+        } else if (!hasMorePages) {
+          log.info(`✓ Última página atingida (${items.length} itens < 30) para o seed ${seedUrl}`);
         } else {
           log.info(`✓ Limite de ${maxPagesPorBairro} páginas atingido para o seed ${seedUrl}`);
         }
