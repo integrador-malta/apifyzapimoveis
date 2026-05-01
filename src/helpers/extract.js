@@ -5,7 +5,8 @@
  */
 export async function extractListings(page, portal) {
   const items = [];
-  
+  const pageBusinessType = extractBusinessType(page.url());
+
   let cards;
   if (portal === 'zapimoveis') {
     // Seletores específicos para Zap Imóveis (resultado de busca)
@@ -16,7 +17,7 @@ export async function extractListings(page, portal) {
   }
 
   const count = await cards.count();
-  
+
   if (count === 0) {
     console.warn(`[${portal}] Nenhum card encontrado com os seletores atuais`);
     return items;
@@ -27,7 +28,7 @@ export async function extractListings(page, portal) {
       const card = cards.nth(i);
 
       // Extrair dados com fallbacks
-      let title, price, address, area, rooms, baths, parking, detailUrl;
+      let title, price, address, area, rooms, baths, parking, detailUrl, advertiserName, groupedListingsCount;
 
       if (portal === 'zapimoveis') {
         // Zap Imóveis - estrutura específica de ranking
@@ -75,6 +76,8 @@ export async function extractListings(page, portal) {
           .innerText()
           .catch(() => null);
 
+        advertiserName = await extractZapAdvertiserName(card);
+        groupedListingsCount = await extractGroupedListingsCount(card);
         detailUrl = await anchor.getAttribute('href').catch(() => null);
       } else {
         // Viva Real e outros - seletores genéricos
@@ -88,8 +91,11 @@ export async function extractListings(page, portal) {
         detailUrl = await card.locator('a').first().getAttribute('href').catch(() => null);
       }
 
+      const url = normalizeUrl(detailUrl, portal);
+
       items.push({
         portal,
+        negocio: extractBusinessType(url) || pageBusinessType,
         title: clean(title),
         price: clean(price),
         address: clean(address),
@@ -97,7 +103,9 @@ export async function extractListings(page, portal) {
         rooms: clean(rooms),
         baths: clean(baths),
         parking: clean(parking),
-        url: normalizeUrl(detailUrl, portal),
+        imobiliaria: clean(advertiserName),
+        anunciosAgrupados: groupedListingsCount,
+        url,
         extractedAt: new Date().toISOString(),
       });
     } catch (err) {
@@ -123,4 +131,44 @@ function normalizeUrl(href, portal) {
   if (href.startsWith('http')) return href;
   const base = portal === 'vivareal' ? 'https://www.vivareal.com.br' : 'https://www.zapimoveis.com.br';
   return href.startsWith('/') ? `${base}${href}` : `${base}/${href}`;
+}
+
+async function extractZapAdvertiserName(card) {
+  const selectors = [
+    'ul li span.flex-1.min-w-0.line-clamp-1',
+    'span.flex-1.min-w-0.line-clamp-1',
+  ];
+
+  for (const selector of selectors) {
+    const advertiserName = await card.locator(selector).first().innerText().catch(() => null);
+    const cleanedName = clean(advertiserName);
+
+    if (cleanedName) {
+      return cleanedName;
+    }
+  }
+
+  return null;
+}
+
+async function extractGroupedListingsCount(card) {
+  const buttonText = await card
+    .locator('[data-cy="listing-card-deduplicated-button"]')
+    .first()
+    .innerText()
+    .catch(() => null);
+
+  if (!buttonText) {
+    return null;
+  }
+
+  const match = buttonText.match(/(\d+)/);
+  return match ? Number(match[1]) : null;
+}
+
+function extractBusinessType(url) {
+  if (!url) return null;
+
+  const match = url.match(/\/(aluguel|venda)\//i);
+  return match ? match[1].toLowerCase() : null;
 }
