@@ -5,6 +5,7 @@
  */
 export async function extractListings(page, portal) {
   const items = [];
+  let skippedCards = 0;
   const pageBusinessType = extractBusinessType(page.url());
 
   let cards;
@@ -93,6 +94,15 @@ export async function extractListings(page, portal) {
 
       const url = normalizeUrl(detailUrl, portal);
 
+      const hasUsefulData = Boolean(
+        title || price || address || area || rooms || baths || parking || advertiserName || url,
+      );
+
+      if (!hasUsefulData) {
+        skippedCards += 1;
+        continue;
+      }
+
       items.push({
         portal,
         negocio: extractBusinessType(url) || pageBusinessType,
@@ -111,6 +121,10 @@ export async function extractListings(page, portal) {
     } catch (err) {
       console.error(`Erro ao extrair card ${i}:`, err.message);
     }
+  }
+
+  if (skippedCards > 0) {
+    console.warn(`[${portal}] ${skippedCards} cards ignorados por falta de dados úteis`);
   }
 
   console.info(`[${portal}] Extraídos ${items.length} imóveis`);
