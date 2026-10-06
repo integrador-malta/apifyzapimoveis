@@ -24,6 +24,7 @@
       "type": "number",
       "editor": "number",
       "default": 10,
+      "minimum": 1,
       "description": "Limite de paginação por link para controlar custo e tempo de execução."
     },
     "headless": {
@@ -31,6 +32,37 @@
       "type": "boolean",
       "default": true,
       "description": "Executa o navegador em modo headless (sem UI)."
+    },
+    "proxyCountryCode": {
+      "title": "Pais do proxy residencial",
+      "type": "string",
+      "editor": "textfield",
+      "default": "BR",
+      "pattern": "^[A-Z]{2}$",
+      "description": "Codigo do pais em duas letras. O proxy nao garante acesso a paginas bloqueadas."
+    },
+    "pageReadyTimeoutSecs": {
+      "title": "Prazo para carregamento da listagem",
+      "type": "integer",
+      "editor": "number",
+      "default": 30,
+      "minimum": 1,
+      "maximum": 90,
+      "description": "Aguarda cards estaveis ou uma mensagem explicita de pesquisa vazia."
+    },
+    "maxRequestsPerMinute": {
+      "title": "Limite de requisicoes por minuto",
+      "type": "integer",
+      "editor": "number",
+      "default": 10,
+      "minimum": 1,
+      "description": "Limita a frequencia de navegacao; a concorrencia continua em um navegador."
+    },
+    "failOnIncomplete": {
+      "title": "Falhar quando a coleta estiver incompleta",
+      "type": "boolean",
+      "default": true,
+      "description": "Finaliza com erro se alguma pesquisa falhar ou atingir o limite de paginas antes do fim. Os dados validos e SUMMARY permanecem salvos."
     }
   },
   "required": ["links"]

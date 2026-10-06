@@ -1,16 +1,17 @@
 
 {
   "name": "bh-imoveis-scraper",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "dependencies": {
-    "apify": "^3.4.5",
-    "crawlee": "^3.13.10",
-    "playwright": "^1.49.0",
-    "@apify/timeout": "^0.3.2"
+    "apify": "3.7.0",
+    "crawlee": "3.18.2",
+    "playwright": "1.56.1",
+    "@apify/timeout": "0.4.14"
   },
   "scripts": {
     "start": "node ./src/main.js",
-    "postinstall": "npx playwright install --with-deps || echo 'Skipping playwright install in Docker'"
+    "test": "node --test test/scraper.test.js test/runtime.test.js",
+    "check": "node --check src/main.js && node --check src/helpers/extract.js && node --check src/helpers/pagination.js && node --check src/helpers/output.js"
   }
 }
