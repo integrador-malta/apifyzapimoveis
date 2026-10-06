@@ -106,6 +106,12 @@ nao promete exatamente-uma-vez sob qualquer falha de infraestrutura.
    o navegador, observando `SUMMARY` e a taxa de bloqueios.
 4. Confirme que a tarefa/agendamento usa o novo build antes de ampliar a coleta.
 
-O Docker usa `npm ci` e instala explicitamente Chromium. O lockfile fixa as
-dependencias para tornar os builds reproduziveis. Os testes locais validam
-os snapshots e a logica, mas nao comprovam acesso ao portal em producao.
+O Docker usa `npm ci` como `myuser` e instala explicitamente Chromium como
+`root`, pois o diretorio compartilhado `/pw-browsers` da imagem base nao
+permite escrita pelo usuario comum. A limpeza automatica de browsers fica
+desabilitada nessa instalacao para preservar os browsers da imagem base.
+Em seguida, o build volta para `myuser` e verifica se o executavel do Chromium
+esta acessivel. O Actor continua executando sem privilegios de root.
+O lockfile fixa as dependencias para tornar os builds reproduziveis.
+Os testes locais validam os snapshots e a logica, mas nao comprovam acesso
+ao portal em producao.
