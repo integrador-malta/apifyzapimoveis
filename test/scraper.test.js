@@ -4,9 +4,9 @@ import { performance } from 'node:perf_hooks';
 import { after, before, test } from 'node:test';
 import { chromium } from 'playwright';
 import { addTimeoutToPromise, tryCancel } from '@apify/timeout';
-import { extractListings, normalizeListing, readListingDocument, waitForListings } from '../src/helpers/extract.js';
+import { extractListings, listingRejectionReason, normalizeListing, readListingDocument, waitForListings } from '../src/helpers/extract.js';
 import { getPageNumber, pageSignature, resolvePagination, validateInput, validateSearchNavigation } from '../src/helpers/pagination.js';
-import { createSummary, ListingOutput } from '../src/helpers/output.js';
+import { createSummary, ListingOutput, seedStatus } from '../src/helpers/output.js';
 
 const seed = 'https://www.zapimoveis.com.br/venda/apartamentos/mg+belo-horizonte++barreiro/?tipos=apartamento_residencial';
 const raw = { href: '/imovel/venda-apartamento-barreiro-id-123/', title: 'Barreiro', price: 'R$ 100.000' };
@@ -103,8 +103,86 @@ test('empty and wrong-link cards are rejected explicitly', async () => {
     <span data-cy="rp-cardProperty-location-txt">Barreiro</span></a></li>`, (report) => {
     assert.equal(report.items.length, 0);
     assert.equal(report.rejectedCards, 2);
+    assert.equal(report.rejections[0].reason, 'missing_detail_link');
+    assert.equal(report.rejections[1].reason, 'missing_detail_link');
     assert.equal(report.empty, false);
   });
+});
+
+test('confirmed FIXED TOP agency promotions do not contaminate grouped-card alignment', async () => {
+  const promotion = `<li data-cy="rp-property-cd" data-type="FIXED TOP">
+    <a href="/imobiliaria/827222/">Real Imobiliaria</a></li>`;
+  const html = `<li data-cy="rp-property-cd"><a href="${raw.href}">
+      <span data-cy="rp-cardProperty-location-txt">Barreiro</span></a></li>
+    ${promotion}<li data-cy="rp-property-cd">
+      <span data-cy="rp-cardProperty-location-txt">Grouped</span>
+      <button data-cy="listing-card-deduplicated-button">Ver os 2 anuncios</button></li>`;
+  const state = { totalCount: 2, listings: [
+    { id: '123', href: raw.href }, { id: '456', href: '/imovel/venda-apartamento-id-456/' },
+  ] };
+  await withPage(`${html}<script>self.__next_f.push(${JSON.stringify([1, `5:${JSON.stringify(state)}\n`])})</script>`, (report) => {
+    assert.equal(report.totalElements, 3);
+    assert.equal(report.cardCount, 2);
+    assert.equal(report.ignoredCards.length, 1);
+    assert.equal(report.ignoredCards[0].reason, 'advertiser_promotion');
+    assert.equal(report.items[1].listingId, '456');
+    assert.equal(report.rejectedCards, 0);
+    assert.ok(report.items.every((record) => !('evidence' in record)));
+  });
+});
+
+test('FIXED TOP alone cannot discard genuine or ambiguous listing cards', async () => {
+  await withPage(`<li data-cy="rp-property-cd" data-type="FIXED TOP"><a href="${raw.href}">
+    <span data-cy="rp-cardProperty-location-txt">Real property</span></a></li>
+    <li data-cy="rp-property-cd" data-type="FIXED TOP"><a href="/imobiliaria/7/">
+    <span data-cy="rp-cardProperty-location-txt">Unresolved property</span></a></li>
+    <li data-cy="rp-property-cd"><a href="/imobiliaria/7/">Unknown format</a></li>`, (report) => {
+    assert.equal(report.ignoredCards.length, 0);
+    assert.equal(report.items.length, 1);
+    assert.equal(report.rejectedCards, 2);
+    assert.deepEqual(report.rejections.map((card) => card.index), [1, 2]);
+  });
+});
+
+test('31 DOM elements with seven grouped cards recover all 30 real listing IDs', async () => {
+  const listings = Array.from({ length: 30 }, (_, index) => ({
+    id: String(index + 1), href: `/imovel/venda-apartamento-id-${index + 1}/`,
+    advertiser: { name: `Agency ${index + 1}` },
+  }));
+  const cards = listings.map((listing, index) => `<li data-cy="rp-property-cd">
+    ${index < 7 ? '<button data-cy="listing-card-deduplicated-button">Ver os 2 anuncios</button>'
+      : `<a href="${listing.href}">Details</a>`}
+    <span data-cy="rp-cardProperty-location-txt">Barreiro</span>
+    <div data-cy="rp-cardProperty-price-txt"><p>R$ 100.000</p></div></li>`);
+  cards.splice(12, 0, '<li data-cy="rp-property-cd" data-type="FIXED TOP"><a href="/imobiliaria/827222/">Real Imobiliaria</a></li>');
+  const payload = JSON.stringify([1, `5:${JSON.stringify({ listings, totalCount: 900 })}\n`]);
+  await withPage(`<ul>${cards.join('')}</ul><script>self.__next_f.push(${payload})</script>`, (report) => {
+    assert.equal(report.totalElements, 31);
+    assert.equal(report.cardCount, 30);
+    assert.equal(report.items.length, 30);
+    assert.equal(report.rejectedCards, 0);
+    assert.equal(report.ignoredCards.length, 1);
+    assert.equal(new Set(report.items.map((item) => item.listingId)).size, 30);
+    assert.ok(report.items.every((item) => item.imobiliaria && item.url.includes('/imovel/')));
+  });
+});
+
+test('rejections distinguish URL problems from missing data and unresolved grouping', () => {
+  assert.equal(listingRejectionReason({ ...raw, href: 'https://[' }, seed), 'malformed_detail_url');
+  assert.equal(listingRejectionReason({ ...raw, href: 'https://example.com/imovel/id-123/' }, seed), 'invalid_detail_origin');
+  assert.equal(listingRejectionReason({ ...raw, href: '/#' }, seed), 'invalid_listing_id');
+  assert.equal(listingRejectionReason({ href: raw.href }, seed), 'missing_minimum_data');
+  assert.equal(listingRejectionReason({ anunciosAgrupados: 2 }, seed), 'grouped_link_unresolved');
+});
+
+test('a clean final page cannot hide rejections from an earlier page', () => {
+  const seed = { failures: [], pages: { 1: { rejectedCards: 2 }, 2: { rejectedCards: 0 } } };
+  assert.equal(seedStatus(seed, { nextUrl: null }, 2, 100, false), 'partial');
+  assert.equal(seedStatus(seed, { nextUrl: 'next' }, 2, 100, false), 'running');
+  assert.equal(seedStatus(seed, { nextUrl: 'next' }, 2, 2, false), 'limited');
+  const summary = createSummary({ seeds: { seed } }, 30, {});
+  assert.equal(summary.partialPages, 1);
+  assert.equal(summary.rejectedCards, 2);
 });
 
 test('normalization validates host, ID and minimum data and removes tracking', () => {

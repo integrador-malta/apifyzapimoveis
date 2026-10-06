@@ -24,7 +24,8 @@ export function readListingDocument(portal) {
     baths: '[data-testid*="bathroom"], .property-card__detail-bathroom',
     parking: '[data-testid*="parking"], .property-card__detail-garage',
   };
-  const rawItems = cards.map((card) => {
+  const ignoredCards = [];
+  const rawItems = cards.flatMap((card, index) => {
     const anchors = [...card.querySelectorAll('a[href]')];
     const detailAnchor = anchors.find((anchor) => /\/imovel\/[^?#]*id-\d+/.test(anchor.getAttribute('href')));
     const advertiserAnchor = anchors.find((anchor) => /\/imobiliaria\//.test(anchor.getAttribute('href')));
@@ -33,12 +34,21 @@ export function readListingDocument(portal) {
       || clean(advertiserAnchor?.querySelector('img')?.getAttribute('alt'))
       || text(card, 'span.flex-1.min-w-0.line-clamp-1');
     const groupText = text(card, '[data-cy="listing-card-deduplicated-button"]');
-    return {
-      ...Object.fromEntries(Object.entries(fields).map(([key, selector]) => [key, text(card, selector)])),
+    const values = Object.fromEntries(Object.entries(fields).map(([key, selector]) => [key, text(card, selector)]));
+    const cardType = card.getAttribute('data-type');
+    const evidence = { index, cardType, links: anchors.map((anchor) => anchor.getAttribute('href')) };
+    if (cardType === 'FIXED TOP' && advertiserAnchor && !detailAnchor && !groupText
+        && !Object.values(values).some(Boolean)) {
+      ignoredCards.push({ ...evidence, reason: 'advertiser_promotion' });
+      return [];
+    }
+    return [{
+      ...values,
       imobiliaria: advertiser,
       anunciosAgrupados: groupText?.match(/\d+/) ? Number(groupText.match(/\d+/)[0]) : null,
       href: detailAnchor?.getAttribute('href') || null,
-    };
+      evidence,
+    }];
   });
 
   const pager = document.querySelector('.olx-core-pagination, nav[aria-label*="pagina"], nav[aria-label*="Pagina"]');
@@ -84,7 +94,9 @@ export function readListingDocument(portal) {
     }
   }
   const anchoredIds = rawItems.map((item) => item.href?.match(/id-(\d+)/)?.[1] || null);
-  const alignedState = listingStates.find((state) => state.listings.length === rawItems.length
+  const matchingStates = listingStates.filter((state) => anchoredIds.some(Boolean)
+    && anchoredIds.filter(Boolean).every((id) => state.listings.some((listing) => String(listing.id) === id)));
+  const alignedState = matchingStates.find((state) => state.listings.length === rawItems.length
     && anchoredIds.some(Boolean)
     && state.listings.every((listing, index) => /^\d+$/.test(String(listing.id))
       && (!anchoredIds[index] || anchoredIds[index] === String(listing.id))));
@@ -96,15 +108,24 @@ export function readListingDocument(portal) {
       if (!item.href && item.anunciosAgrupados > 1
           && typeof listing.href === 'string'
           && listing.href.match(/id-(\d+)/)?.[1] === String(listing.id)) item.href = listing.href;
-      const advertiser = listing.realEstate || listing.advertiser;
-      if (!item.imobiliaria && advertiser && typeof advertiser.name === 'string') {
-        item.imobiliaria = clean(advertiser.name);
-      }
     });
   }
+  rawItems.forEach((item) => {
+    const id = item.href?.match(/id-(\d+)/)?.[1];
+    const matches = matchingStates.flatMap((state) => state.listings.filter((listing) => String(listing.id) === id));
+    const names = [...new Set(matches.map((listing) => (listing.realEstate || listing.advertiser)?.name)
+      .filter((name) => typeof name === 'string').map(clean).filter(Boolean))];
+    if (!item.imobiliaria && names.length === 1) item.imobiliaria = names[0];
+  });
   return {
     rawItems,
-    cardCount: cards.length,
+    cardCount: rawItems.length,
+    totalElements: cards.length,
+    ignoredCards,
+    structuredListings: listingStates.map((state) => ({
+      totalCount: state.totalCount,
+      listings: state.listings.map((listing) => ({ id: listing.id, href: listing.href })),
+    })),
     paginationLinks,
     pagerPresent: Boolean(pager),
     totalCount,
@@ -116,16 +137,25 @@ export function readListingDocument(portal) {
   };
 }
 
-export function normalizeListing(raw, pageUrl, portal = 'zapimoveis', extractedAt = new Date().toISOString()) {
-  if (!raw.href) return null;
+export function listingRejectionReason(raw, pageUrl, portal = 'zapimoveis') {
+  if (!raw.href) return raw.anunciosAgrupados > 1 ? 'grouped_link_unresolved' : 'missing_detail_link';
+  if (!URL.canParse(raw.href, pageUrl)) return 'malformed_detail_url';
   const url = new URL(raw.href, pageUrl);
   const expectedHost = portal === 'vivareal' ? 'www.vivareal.com.br' : 'www.zapimoveis.com.br';
   const match = url.pathname.match(/^\/imovel\/[^/]*id-(\d+)\/?$/);
-  if (url.protocol !== 'https:' || url.hostname !== expectedHost || !match
-      || !(raw.title || raw.price || raw.address || raw.area)) return null;
+  if (url.protocol !== 'https:' || url.hostname !== expectedHost || url.username || url.password) return 'invalid_detail_origin';
+  if (!match) return 'invalid_listing_id';
+  if (!(raw.title || raw.price || raw.address || raw.area)) return 'missing_minimum_data';
+  return null;
+}
+
+export function normalizeListing(raw, pageUrl, portal = 'zapimoveis', extractedAt = new Date().toISOString()) {
+  if (listingRejectionReason(raw, pageUrl, portal)) return null;
+  const url = new URL(raw.href, pageUrl);
+  const match = url.pathname.match(/^\/imovel\/[^/]*id-(\d+)\/?$/);
   url.search = '';
   url.hash = '';
-  const { href, ...fields } = raw;
+  const { href, evidence, ...fields } = raw;
   const negocio = (url.pathname.match(/\/(?:imovel\/)?(aluguel|venda)[/-]/i)
     || new URL(pageUrl).pathname.match(/\/(aluguel|venda)\//i))?.[1]?.toLowerCase() || null;
   return { portal, listingId: match[1], negocio, ...fields, url: url.toString(), extractedAt };
@@ -159,5 +189,12 @@ export async function extractListings(page, portal = 'zapimoveis', readySnapshot
   const snapshot = readySnapshot || await page.evaluate(readListingDocument, portal);
   const extractedAt = new Date().toISOString();
   const items = snapshot.rawItems.map((raw) => normalizeListing(raw, page.url(), portal, extractedAt)).filter(Boolean);
-  return { ...snapshot, items, rejectedCards: snapshot.cardCount - items.length };
+  const rejections = snapshot.rawItems.flatMap((raw) => {
+    const reason = listingRejectionReason(raw, page.url(), portal);
+    return reason ? [{
+      ...raw.evidence, reason, href: raw.href, listingId: raw.href?.match(/id-(\d+)/)?.[1] || null,
+      title: raw.title, price: raw.price, anunciosAgrupados: raw.anunciosAgrupados,
+    }] : [];
+  });
+  return { ...snapshot, items, rejections, rejectedCards: rejections.length };
 }

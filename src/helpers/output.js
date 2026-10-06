@@ -45,15 +45,26 @@ export class ListingOutput {
 
 export function createSummary(state, uniqueListings, build) {
   const seeds = Object.values(state.seeds);
+  const pages = seeds.flatMap((seed) => Object.values(seed.pages));
   return {
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
     build,
     uniqueListings,
     pagesProcessed: seeds.reduce((sum, seed) => sum + Object.keys(seed.pages).length, 0),
+    partialPages: pages.filter((page) => page.rejectedCards > 0).length,
+    rejectedCards: pages.reduce((sum, page) => sum + (page.rejectedCards || 0), 0),
+    ignoredPromotions: pages.reduce((sum, page) => sum + (page.ignoredPromotions || 0), 0),
     completeSeeds: seeds.filter((seed) => seed.status === 'complete').length,
     emptySeeds: seeds.filter((seed) => seed.status === 'empty').length,
     incompleteSeeds: seeds.filter((seed) => !['complete', 'empty'].includes(seed.status)).length,
     seeds,
   };
+}
+
+export function seedStatus(seed, pagination, pageNum, maxPages, empty) {
+  if (pagination.nextUrl) return pageNum >= maxPages ? 'limited' : 'running';
+  if (seed.failures.length) return 'failed';
+  if (Object.values(seed.pages).some((page) => page.rejectedCards > 0)) return 'partial';
+  return empty ? 'empty' : 'complete';
 }

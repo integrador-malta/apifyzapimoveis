@@ -27,23 +27,48 @@ async function runOffline(mode, storage) {
   });
 }
 
-for (const mode of ['success', 'blocked', 'limited', 'repeated', 'empty', 'partial']) {
+for (const mode of ['success', 'blocked', 'limited', 'repeated', 'empty', 'partial', 'promotion', 'rejected', 'unknown-pagination', 'wrong-page']) {
   test(`complete Actor with offline navigation: ${mode}`, { timeout: 90000 }, async () => {
     const storage = await mkdtemp(join(tmpdir(), 'zap-scraper-test-'));
     try {
       const result = await runOffline(mode, storage);
-      assert.equal(result.code, ['success', 'empty', 'partial'].includes(mode) ? 0 : 91, result.logs);
+      assert.equal(result.code, ['success', 'empty', 'partial', 'promotion'].includes(mode) ? 0 : 91, result.logs);
       const summary = JSON.parse(await readFile(join(storage, 'key_value_stores', 'default', 'SUMMARY.json'), 'utf8'));
-      assert.equal(summary.uniqueListings, ['blocked', 'empty'].includes(mode) ? 0 : mode === 'success' ? 32 : 31);
-      assert.equal(summary.pagesProcessed, mode === 'blocked' ? 0 : mode === 'success' ? 2 : 1);
-      assert.equal(summary.incompleteSeeds, ['success', 'empty'].includes(mode) ? 0 : 1);
-      const status = { success: 'complete', blocked: 'failed', repeated: 'failed', empty: 'empty', limited: 'limited', partial: 'limited' };
+      const traversesBothPages = ['success', 'promotion', 'rejected'].includes(mode);
+      assert.equal(summary.uniqueListings, ['blocked', 'empty'].includes(mode) ? 0 : traversesBothPages ? 32 : 31);
+      assert.equal(summary.pagesProcessed, ['blocked', 'unknown-pagination'].includes(mode) ? 0 : traversesBothPages ? 2 : 1);
+      assert.equal(summary.incompleteSeeds, ['success', 'empty', 'promotion'].includes(mode) ? 0 : 1);
+      const status = {
+        success: 'complete', blocked: 'failed', repeated: 'failed', empty: 'empty',
+        limited: 'limited', partial: 'limited', promotion: 'complete', rejected: 'partial',
+        'unknown-pagination': 'failed',
+        'wrong-page': 'failed',
+      };
       assert.equal(summary.seeds[0].status, status[mode]);
-      assert.equal(summary.build.version, '1.1.0');
+      assert.equal(summary.build.version, '1.2.0');
       if (mode === 'blocked') {
         assert.equal(summary.seeds[0].failures.length, 1);
         assert.equal(summary.seeds[0].failures[0].httpStatus, 403);
         assert.ok(summary.errorsDatasetId);
+      }
+      if (mode === 'promotion') {
+        assert.equal(summary.ignoredPromotions, 2);
+        assert.equal(summary.rejectedCards, 0);
+      }
+      if (mode === 'rejected') {
+        assert.equal(summary.rejectedCards, 1);
+        assert.equal(summary.partialPages, 1);
+        assert.equal(summary.seeds[0].pages[2].newListings, 1);
+        assert.equal(summary.seeds[0].attempts.length, 0, 'Partial extraction must not retry the entire page');
+        const key = summary.seeds[0].pages[1].extractionDiagnosticKey;
+        const diagnostic = JSON.parse(await readFile(join(storage, 'key_value_stores', 'default', `${key}.json`), 'utf8'));
+        assert.equal(diagnostic.rejections[0].reason, 'grouped_link_unresolved');
+        assert.equal(diagnostic.rejections[0].index, 31);
+        assert.ok(diagnostic.rejectedHtml[0].html.includes('listing-card-deduplicated-button'));
+        assert.equal(diagnostic.rejectedHtml[0].truncated, false);
+      }
+      if (mode === 'wrong-page') {
+        assert.ok(summary.seeds[0].failures[0].error.includes('esperada 2, recebida 1'));
       }
       if (summary.uniqueListings) {
         const datasetPath = join(storage, 'datasets', 'default');

@@ -35,13 +35,19 @@ export function getPageNumber(value) {
   return page;
 }
 
-export function resolvePagination(snapshot, currentUrl, pageNum) {
+export function validateObservedPage(snapshot, currentUrl, pageNum) {
   const current = new URL(currentUrl);
   const active = snapshot.paginationLinks.find((link) => link.active);
   const observedPage = active ? getPageNumber(new URL(active.href, current).toString()) : snapshot.statePage;
   if (observedPage != null && observedPage !== pageNum) {
     throw new Error(`Pagina repetida ou redirecionada: esperada ${pageNum}, recebida ${observedPage}.`);
   }
+}
+
+export function resolvePagination(snapshot, currentUrl, pageNum) {
+  validateObservedPage(snapshot, currentUrl, pageNum);
+  const current = new URL(currentUrl);
+  const active = snapshot.paginationLinks.find((link) => link.active);
   const next = snapshot.paginationLinks.find((link) => !link.disabled && /pr[o\u00f3]xima|next/i.test(link.label))
     || snapshot.paginationLinks.find((link) => !link.disabled && getPageNumber(new URL(link.href, current).toString()) === pageNum + 1);
   if (next) {

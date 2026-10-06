@@ -15,11 +15,18 @@ PlaywrightCrawler.prototype._navigationHandler = async (context, gotoOptions) =>
     const number = Number(url.searchParams.get('page') || 1);
     if (mode === 'empty') return route.fulfill({ contentType: 'text/html', body: '<h1>Nenhum imovel encontrado</h1>' });
     const ids = number === 1 || mode === 'repeated' ? Array.from({ length: 31 }, (_, index) => index + 1) : [31, 32];
+    const promotion = mode === 'promotion' ? `<li data-cy="rp-property-cd" data-type="FIXED TOP">
+      <a href="/imobiliaria/827222/">Real Imobiliaria</a></li>` : '';
+    const unresolved = mode === 'rejected' && number === 1 ? `<li data-cy="rp-property-cd">
+      <span data-cy="rp-cardProperty-location-txt">Unresolved grouped property</span>
+      <button data-cy="listing-card-deduplicated-button">Ver os 2 anuncios</button></li>` : '';
+    const unknownPager = mode === 'unknown-pagination';
+    const activeNumber = mode === 'wrong-page' && number === 2 ? 1 : number;
     const next = number === 1 ? `<a aria-label="pr\u00f3xima p\u00e1gina" href="${seed}?page=2">Next</a>` : '';
     return route.fulfill({
       contentType: 'text/html',
-      body: `<ul>${ids.map(card).join('')}</ul><div class="olx-core-pagination">
-        <a class="olx-core-pagination__button--active" href="${seed}?page=${number}">${number}</a>${next}</div>`,
+      body: `<ul>${promotion}${ids.map(card).join('')}${unresolved}</ul>${unknownPager ? '' : `<div class="olx-core-pagination">
+        <a class="olx-core-pagination__button--active" href="${seed}?page=${activeNumber}">${activeNumber}</a>${next}</div>`}`,
     });
   });
   return context.page.goto(context.request.url, gotoOptions);
