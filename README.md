@@ -1,6 +1,6 @@
 # Coleta de pesquisas do Zap Imoveis
 
-Actor com Playwright/Crawlee para pesquisas de venda e aluguel. A versao 1.2.0
+Actor com Playwright/Crawlee para pesquisas de venda e aluguel. A versao 1.3.0
 extrai os cards em lote, valida links e IDs, segue a paginacao da pagina e
 separa anuncios de falhas. Nao contorna CAPTCHA nem garante acesso a paginas
 bloqueadas pelo portal. Verifique as condicoes de uso e as permissoes de coleta.
@@ -46,6 +46,8 @@ nova execucao com armazenamento novo, apos corrigir o motivo do descarte.
 
 - `links`: pesquisas completas, com os filtros desejados, da primeira pagina.
   Somente URLs HTTPS de pesquisa do Zap sao aceitas pelo Actor.
+  Pesquisas com varias categorias no parametro `tipos` sao aceitas; os filtros
+  sao preservados na paginacao.
 - `maxPagesPorBairro`: inteiro positivo; padrao 10. Se houver uma proxima pagina
   ao atingir o limite, a pesquisa fica `limited`, nao `complete`.
 - `usarProxy` e `proxyCountryCode`: proxy residencial Apify, por padrao no Brasil.
@@ -56,20 +58,21 @@ nova execucao com armazenamento novo, apos corrigir o motivo do descarte.
   duas novas tentativas por requisicao.
 - `failOnIncomplete`: padrao `true`. Qualquer pesquisa incompleta faz o Actor
   terminar com erro, mantendo todos os dados validos e diagnosticos.
+  Falhas definitivas de enriquecimento de imobiliaria/tipo tambem geram erro.
   Defina `false` somente se aceitar conscientemente resultados parciais.
 
 ## Saidas e cobertura
 
 O **dataset padrao** contem apenas anuncios validados, com `listingId`, URL
 canonica sem tracking e os campos anteriores (`title`, `price`, `address`,
-`area`, `rooms`, `baths`, `parking`, `imobiliaria`, `anunciosAgrupados`,
+`area`, `rooms`, `baths`, `parking`, `imobiliaria`, `tipoImovel`, `anunciosAgrupados`,
 `negocio`, `portal`, `extractedAt`, `seedUrl` e `pageNum`).
 
 O mesmo ID e gravado uma vez por portal, inclusive quando aparece em varias
 pesquisas. `seedUrl`/`pageNum` no anuncio indicam sua primeira origem gravada;
 as outras associacoes ficam em `SUMMARY.seeds[].pages[].listingIds`.
 Campos opcionais ausentes continuam nulos, e sua frequencia e registrada no
-resumo por pagina. Promocoes de imobiliarias `FIXED TOP` so sao ignoradas quando
+resumo por pagina, antes do enriquecimento de detalhes. Promocoes de imobiliarias `FIXED TOP` so sao ignoradas quando
 possuem link de imobiliaria, mas nenhum link de imovel, campo de imovel ou
 botao de agrupamento. Um card ambiguo continua sendo uma rejeicao, nao publicidade.
 
@@ -89,14 +92,47 @@ apos excluir as promocoes reconhecidas. Imobiliarias podem ser recuperadas
 por ID sem exigir que todo o DOM tenha a mesma quantidade de elementos.
 Os anuncios internos do grupo nao sao expandidos.
 
+### Imobiliaria e tipo por anuncio
+
+O nome da imobiliaria e associado ao ID exato do anuncio, independentemente
+de outros cards estarem ausentes nos dados estruturados. Sao verificados
+`realEstate`, `advertiser` e metadados equivalentes, sem escolher arbitrariamente
+entre nomes conflitantes.
+
+`tipoImovel` e uma string com o tipo daquele anuncio, obtido dos dados
+estruturados ou da URL do proprio imovel. O caminho da pesquisa (por exemplo,
+`/apartamentos/`) e a lista de filtros nunca classificam todos os resultados.
+Subtipos como cobertura e casa de condominio prevalecem sobre o tipo generico.
+As 13 categorias do link misto sao:
+
+- Apartamento; Casa; Cobertura; Casa de Condominio.
+- Loja / Salao / Ponto Comercial; Conjunto Comercial / Sala; Casa Comercial.
+- Hotel / Motel / Pousada; Andar / Laje Corporativa; Predio Inteiro.
+- Terreno / Lote; Galpao / Deposito / Armazem; Garagem.
+
+Os valores do dataset preservam os acentos dos nomes em portugues.
+Quando falta imobiliaria ou tipo, uma requisicao de detalhe por ID e
+enfileirada antes da gravacao do anuncio. Isso pode aumentar o tempo e o
+custo de navegacao/proxy, mas nao abre detalhes dos anuncios ja completos.
+A consulta verifica URL, ID e canonical para nao atribuir dados de outro imovel.
+Se todas as tentativas falharem, o anuncio original e preservado, os campos
+nao recuperados continuam nulos e a falha e registrada explicitamente.
+Tipos desconhecidos nao sao inventados.
+
+Para atualizar resultados antigos sem esses metadados, use uma nova execucao
+com armazenamento novo: registros ja gravados nao sao alterados em lugar.
+
 No **Key-value store padrao**:
 
 - `SCRAPE_STATE`: checkpoint de paginas, assinaturas por IDs, origens,
-  tentativas e falhas.
+  tentativas, falhas e enriquecimentos de detalhe pendentes/finalizados.
 - `SUMMARY`: versao/build/run, anuncios unicos, paginas verificadas,
   pesquisas completas/vazias/incompletas, `partialPages`, `rejectedCards`,
   `ignoredPromotions` e ID do dataset de falhas. Os checkpoints por pagina
   incluem motivos de rejeicao, promocoes ignoradas e a chave de diagnostico.
+  `detailEnrichments` conta `requested`, `complete`, `failed` e `pending`;
+  `enrichmentFailures` identifica os IDs e diagnosticos dos detalhes que
+  falharam. `incompleteSeeds` mede a cobertura das pesquisas, nao essas falhas.
 - `EXTRACTION-*`: diagnostico direcionado para paginas com rejeicoes:
   posicao original, tipo do card, links, ID quando disponivel e motivo
   (`missing_detail_link`, `grouped_link_unresolved`, `malformed_detail_url`,
@@ -110,6 +146,7 @@ No **Key-value store padrao**:
   quando a pagina ainda esta acessivel. Nao inclui credenciais do proxy.
 
 Falhas finais de requisicoes ficam no **dataset separado** `falhas-<runId>`.
+Falhas de detalhe usam `reason: detail_enrichment_failed` e incluem `listingId`.
 Rejeicoes parciais de extracao ficam em `SUMMARY` e `EXTRACTION-*`, e nao sao
 registradas como falhas de acesso ao portal. O nome local do dataset de falhas
 e `falhas-local`. A ausencia de cards so indica pesquisa vazia se houver
@@ -126,7 +163,7 @@ nao promete exatamente-uma-vez sob qualquer falha de infraestrutura.
 1. Publique as alteracoes e crie **um novo build**. Usar `latest` sozinho nao
    reconstrui o Actor nem atualiza um build antigo.
 2. Confirme o commit do build na console. O log inicial e `SUMMARY` devem
-   mostrar versao `1.2.0` e o ID do novo build.
+   mostrar versao `1.3.0` e o ID do novo build.
 3. Execute primeiro duas ou tres pesquisas conhecidas, incluindo uma com
    varias paginas e uma vazia. Compare IDs, filtros e fim da paginacao com
    o navegador, observando `SUMMARY` e a taxa de bloqueios.

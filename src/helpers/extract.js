@@ -1,4 +1,7 @@
-export function readListingDocument(portal) {
+import { propertyType } from './property-types.js';
+
+export function readListingDocument(options) {
+  const { portal, detailId } = typeof options === 'string' ? { portal: options } : options;
   const clean = (value) => value?.replace(/[\u200B-\u200D\uFEFF]/g, '').replace(/\s+/g, ' ').trim() || null;
   const text = (root, selector) => clean(root.querySelector(selector)?.textContent);
   const normalizedBody = (document.body?.innerText || document.body?.textContent || '')
@@ -64,11 +67,36 @@ export function readListingDocument(portal) {
   let pageSize = null;
   const flightChunks = [];
   const listingStates = [];
+  const entities = [];
+  const listingId = (value) => {
+    if (typeof value !== 'string') return null;
+    return value.match(/\/imovel\/[^?#]*id-(\d+)/)?.[1] || null;
+  };
+  const nameOf = (advertiser) => {
+    if (!advertiser || typeof advertiser !== 'object') return null;
+    return clean(advertiser.name) || clean(advertiser.companyName);
+  };
   const collectListingStates = (value) => {
     if (!value || typeof value !== 'object') return;
     if (Array.isArray(value.listings) && Number.isInteger(value.totalCount)) listingStates.push(value);
+    const listing = value.listing && typeof value.listing === 'object' ? value.listing : value;
+    const href = listing.href || listing.url;
+    const id = listingId(href) || (/^\d+$/.test(String(listing.id)) ? String(listing.id) : null);
+    if (id) {
+      entities.push({
+        id,
+        names: [nameOf(listing.realEstate), nameOf(listing.advertiser),
+          nameOf(value.realEstate), nameOf(value.advertiser), nameOf(listing.seller),
+          nameOf(listing.offeredBy)].filter(Boolean),
+        types: [listing.unitType, ...(Array.isArray(listing.unitTypes) ? listing.unitTypes : []),
+          ...(Array.isArray(listing.unitSubTypes) ? listing.unitSubTypes : [])].filter((type) => typeof type === 'string'),
+      });
+    }
     for (const child of Object.values(value)) collectListingStates(child);
   };
+  for (const script of document.querySelectorAll('script[type="application/ld+json"], script#__NEXT_DATA__')) {
+    collectListingStates(JSON.parse(script.textContent));
+  }
   for (const script of document.querySelectorAll('script')) {
     const match = script.textContent.match(/^self\.__next_f\.push\((\[[\s\S]*\])\);?\s*$/);
     if (!match) continue;
@@ -85,7 +113,7 @@ export function readListingDocument(portal) {
       statePage = Number(pagination[1]);
       pageSize = Number(pagination[2]);
     }
-    if (state.includes('"listings"')) {
+    if (state) {
       for (const record of state.split('\n')) {
         if (!/^[0-9a-f]+:/i.test(record)) continue;
         const value = record.slice(record.indexOf(':') + 1);
@@ -112,11 +140,32 @@ export function readListingDocument(portal) {
   }
   rawItems.forEach((item) => {
     const id = item.href?.match(/id-(\d+)/)?.[1];
-    const matches = matchingStates.flatMap((state) => state.listings.filter((listing) => String(listing.id) === id));
-    const names = [...new Set(matches.map((listing) => (listing.realEstate || listing.advertiser)?.name)
-      .filter((name) => typeof name === 'string').map(clean).filter(Boolean))];
+    const matches = entities.filter((entity) => entity.id === id);
+    const names = [...new Set(matches.flatMap((entity) => entity.names))];
     if (!item.imobiliaria && names.length === 1) item.imobiliaria = names[0];
+    item.propertyTypes = [...new Set(matches.flatMap((entity) => entity.types))];
   });
+  let detail = null;
+  if (detailId) {
+    const matches = entities.filter((entity) => entity.id === detailId);
+    const canonical = document.querySelector('link[rel="canonical"]')?.getAttribute('href');
+    if (canonical && listingId(canonical) !== detailId) throw new Error('Canonical do detalhe nao corresponde ao anuncio solicitado.');
+    const names = [...new Set(matches.flatMap((entity) => entity.names))];
+    if (!names.length) {
+      for (const anchor of document.querySelectorAll('a[href*="/imobiliaria/"]')) {
+        if (anchor.closest('header, footer, nav, li[data-cy="rp-property-cd"], [data-cy*="recommendation"]')) continue;
+        const name = clean(anchor.textContent) || clean(anchor.querySelector('img')?.getAttribute('alt'));
+        if (name) names.push(name);
+      }
+    }
+    const uniqueNames = [...new Set(names)];
+    detail = {
+      listingId: detailId,
+      imobiliaria: uniqueNames.length === 1 ? uniqueNames[0] : null,
+      propertyTypes: [...new Set(matches.flatMap((entity) => entity.types))],
+      advertiserCandidates: uniqueNames,
+    };
+  }
   return {
     rawItems,
     cardCount: rawItems.length,
@@ -134,6 +183,7 @@ export function readListingDocument(portal) {
     empty: totalCount === 0 || /nenhum imovel encontrado|nao encontramos (?:nenhum )?imoveis|nao encontramos resultados/.test(normalizedBody),
     blocked: !cards.length && /captcha|access denied|acesso negado|verify you are human|verifique se voce e humano/.test(normalizedBody),
     title: document.title,
+    detail,
   };
 }
 
@@ -155,10 +205,42 @@ export function normalizeListing(raw, pageUrl, portal = 'zapimoveis', extractedA
   const match = url.pathname.match(/^\/imovel\/[^/]*id-(\d+)\/?$/);
   url.search = '';
   url.hash = '';
-  const { href, evidence, ...fields } = raw;
+  const { href, evidence, propertyTypes, ...fields } = raw;
   const negocio = (url.pathname.match(/\/(?:imovel\/)?(aluguel|venda)[/-]/i)
     || new URL(pageUrl).pathname.match(/\/(aluguel|venda)\//i))?.[1]?.toLowerCase() || null;
-  return { portal, listingId: match[1], negocio, ...fields, url: url.toString(), extractedAt };
+  return { portal, listingId: match[1], negocio, ...fields,
+    tipoImovel: propertyType(propertyTypes, url.toString()), url: url.toString(), extractedAt };
+}
+
+export async function extractDetail(page, item) {
+  const loaded = new URL(page.url());
+  if (loaded.origin !== new URL(item.url).origin
+      || loaded.pathname.match(/^\/imovel\/[^/]*id-(\d+)\/?$/)?.[1] !== item.listingId) {
+    throw new Error('Navegacao do detalhe foi redirecionada para outro anuncio.');
+  }
+
+  const snapshot = await page.evaluate(readListingDocument, { portal: item.portal, detailId: item.listingId });
+  if (snapshot.blocked) throw new Error('Pagina de bloqueio recebida no detalhe do anuncio.');
+  const metadata = snapshot.detail;
+  return {
+    item: { ...item, imobiliaria: item.imobiliaria || metadata.imobiliaria,
+      tipoImovel: item.tipoImovel || propertyType(metadata.propertyTypes, item.url) },
+    advertiserCandidates: metadata.advertiserCandidates,
+  };
+}
+
+export async function waitForDetail(page, item, assertActive, timeoutMs) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    assertActive();
+    const result = await extractDetail(page, item);
+    assertActive();
+    if (result.item.imobiliaria && result.item.tipoImovel) return result.item;
+    if (result.advertiserCandidates.length > 1) throw new Error('Detalhe apresenta anunciantes conflitantes para o mesmo ID.');
+    await new Promise((resolve) => setTimeout(resolve, Math.min(250, Math.max(0, timeoutMs - (Date.now() - started)))));
+  }
+  assertActive();
+  throw new Error('Detalhe sem imobiliaria ou tipo de imovel verificavel no prazo de carregamento.');
 }
 
 export async function waitForListings(page, assertActive, timeoutMs = 30000, stableMs = 1000) {

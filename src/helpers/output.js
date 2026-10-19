@@ -46,11 +46,21 @@ export class ListingOutput {
 export function createSummary(state, uniqueListings, build) {
   const seeds = Object.values(state.seeds);
   const pages = seeds.flatMap((seed) => Object.values(seed.pages));
+  const enrichments = Object.values(state.enrichments || {});
   return {
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
     build,
     uniqueListings,
+    detailEnrichments: {
+      requested: enrichments.length,
+      complete: enrichments.filter((entry) => entry.status === 'complete').length,
+      failed: enrichments.filter((entry) => entry.status === 'failed').length,
+      pending: enrichments.filter((entry) => entry.status === 'pending').length,
+    },
+    enrichmentFailures: enrichments.filter((entry) => entry.status === 'failed')
+      .map((entry) => ({ listingId: entry.item.listingId, url: entry.item.url,
+        seedUrl: entry.seedUrl, pageNum: entry.pageNum, error: entry.error, diagnosticKey: entry.diagnosticKey })),
     pagesProcessed: seeds.reduce((sum, seed) => sum + Object.keys(seed.pages).length, 0),
     partialPages: pages.filter((page) => page.rejectedCards > 0).length,
     rejectedCards: pages.reduce((sum, page) => sum + (page.rejectedCards || 0), 0),

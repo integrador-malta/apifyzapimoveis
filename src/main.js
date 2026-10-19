@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { Actor, log } from 'apify';
 import { PlaywrightCrawler, RequestState } from 'crawlee';
 import { tryCancel } from '@apify/timeout';
-import { extractListings, waitForListings } from './helpers/extract.js';
+import { extractListings, waitForDetail, waitForListings } from './helpers/extract.js';
 import { pageSignature, resolvePagination, validateInput, validateObservedPage, validateSearchNavigation } from './helpers/pagination.js';
 import { createSummary, ListingOutput, seedStatus } from './helpers/output.js';
 
@@ -19,11 +19,25 @@ await Actor.main(async () => {
   await output.restore();
   const state = await store.getValue('SCRAPE_STATE') || { schemaVersion: 1, seeds: {}, failures: {} };
   if (state.schemaVersion !== 1) throw new Error('Checkpoint de scraping possui versao incompativel.');
+  state.enrichments ||= {};
   const persist = () => store.setValue('SCRAPE_STATE', state);
   const requestQueue = await Actor.openRequestQueue();
   const enqueue = (seedUrl, url, pageNum) => requestQueue.addRequest({
     url, uniqueKey: `${seedUrl}::${pageNum}`, userData: { seedUrl, pageNum },
   });
+  const enqueueDetail = async (item, seedUrl, pageNum) => {
+    const key = `${item.portal}:${item.listingId}`;
+    if (output.ids.has(key) && state.enrichments[key]?.status !== 'pending') return;
+    state.enrichments[key] ||= { status: 'pending', item, seedUrl, pageNum };
+    const enrichment = state.enrichments[key];
+    if (enrichment.status === 'pending') {
+      await persist();
+      await requestQueue.addRequest({
+        url: enrichment.item.url, uniqueKey: `DETAIL:${key}`,
+        userData: { kind: 'DETAIL', enrichmentKey: key, seedUrl: enrichment.seedUrl, pageNum: enrichment.pageNum },
+      });
+    }
+  };
   for (const seedUrl of links) {
     state.seeds[seedUrl] ||= { seedUrl, status: 'pending', pages: {}, attempts: [], failures: [] };
     await enqueue(seedUrl, seedUrl, 1);
@@ -33,6 +47,9 @@ await Actor.main(async () => {
         if (!queued.wasAlreadyHandled && state.seeds[seedUrl].status === 'limited') state.seeds[seedUrl].status = 'running';
       }
     }
+  }
+  for (const enrichment of Object.values(state.enrichments)) {
+    if (enrichment.status === 'pending') await enqueueDetail(enrichment.item, enrichment.seedUrl, enrichment.pageNum);
   }
   await persist();
   log.info('Iniciando coleta', { ...build, links: links.length, maxPagesPorBairro, uniqueListings: output.ids.size });
@@ -115,6 +132,22 @@ await Actor.main(async () => {
           throw new Error('Extracao cancelada ou prazo seguro de gravacao excedido.');
         }
       };
+      if (request.userData.kind === 'DETAIL') {
+        const enrichment = state.enrichments[request.userData.enrichmentKey];
+        if (enrichment.status !== 'pending') return;
+        const item = await waitForDetail(page, enrichment.item, assertActive, pageReadyTimeoutSecs * 1000);
+        assertActive();
+        await output.save([item], { seedUrl, pageNum }, assertActive);
+        assertActive();
+        enrichment.item = item;
+        enrichment.status = 'complete';
+        await persist();
+        assertActive();
+        log.info('Metadados completados no detalhe', {
+          listingId: item.listingId, imobiliaria: item.imobiliaria, tipoImovel: item.tipoImovel,
+        });
+        return;
+      }
       const checkpoint = seed.pages[pageNum];
       if (checkpoint) {
         assertActive();
@@ -167,8 +200,21 @@ await Actor.main(async () => {
       if (signature && Object.values(seed.pages).some((previous) => previous.signature === signature)) {
         throw new Error('Pagina repetida: mesmos IDs de anuncios em paginas diferentes.');
       }
-      const saved = await output.save(snapshot.items, { seedUrl, pageNum }, assertActive);
+      const completeItems = snapshot.items.filter((item) => item.imobiliaria && item.tipoImovel);
+      const deferredItems = snapshot.items.filter((item) => !item.imobiliaria || !item.tipoImovel);
+      const saved = await output.save(completeItems, { seedUrl, pageNum }, assertActive);
       assertActive();
+      for (const item of completeItems) {
+        const enrichment = state.enrichments[`${item.portal}:${item.listingId}`];
+        if (enrichment?.status === 'pending') {
+          enrichment.item = item;
+          enrichment.status = 'complete';
+        }
+      }
+      for (const item of deferredItems) {
+        await enqueueDetail(item, seedUrl, pageNum);
+        assertActive();
+      }
       const pagination = resolvePagination(snapshot, page.url(), pageNum);
       if (pagination.nextUrl && pageNum < maxPagesPorBairro) {
         await enqueue(seedUrl, pagination.nextUrl, pageNum + 1);
@@ -178,6 +224,7 @@ await Actor.main(async () => {
         pageNum, url: page.url(), signature, nextUrl: pagination.nextUrl,
         listingIds: [...new Set(snapshot.items.map((item) => item.listingId))],
         cardCount: snapshot.cardCount, totalCount: snapshot.totalCount, newListings: saved,
+        detailRequestedIds: deferredItems.map((item) => item.listingId),
         rejectedCards: snapshot.rejectedCards, ignoredPromotions: snapshot.ignoredCards.length,
         ignoredCards: snapshot.ignoredCards,
         extractionDiagnosticKey: snapshot.rejectedCards ? extractionKey : null,
@@ -185,7 +232,7 @@ await Actor.main(async () => {
           counts[card.reason] = (counts[card.reason] || 0) + 1;
           return counts;
         }, {}),
-        missingFields: Object.fromEntries(['price', 'address', 'area', 'rooms', 'baths', 'parking', 'imobiliaria']
+        missingFields: Object.fromEntries(['price', 'address', 'area', 'rooms', 'baths', 'parking', 'imobiliaria', 'tipoImovel']
           .map((field) => [field, snapshot.items.filter((item) => !item[field]).length])),
       };
       seed.status = seedStatus(seed, pagination, pageNum, maxPagesPorBairro, snapshot.empty);
@@ -210,6 +257,25 @@ await Actor.main(async () => {
       const { seedUrl, pageNum } = request.userData;
       const diagnostic = await saveDiagnostic(context, error, true);
       const failure = { ...diagnostic, seedUrl, pageNum, reason: 'request_failed' };
+      if (request.userData.kind === 'DETAIL') {
+        const enrichment = state.enrichments[request.userData.enrichmentKey];
+        const assertFinalizing = () => {
+          tryCancel();
+          if (enrichment.status !== 'pending') throw new Error('Enriquecimento ja finalizado.');
+        };
+        await output.save([enrichment.item], { seedUrl, pageNum }, assertFinalizing);
+        await errors.pushData({
+          ...failure, reason: 'detail_enrichment_failed', listingId: enrichment.item.listingId,
+        });
+        enrichment.status = 'failed';
+        enrichment.error = error.message;
+        enrichment.diagnosticKey = diagnostic.diagnosticKey;
+        await persist();
+        log.error('Nao foi possivel completar metadados; anuncio original preservado', {
+          listingId: enrichment.item.listingId, error: error.message,
+        });
+        return;
+      }
       if (!state.failures[request.uniqueKey]) {
         await errors.pushData(failure);
         state.failures[request.uniqueKey] = failure;
@@ -235,12 +301,15 @@ await Actor.main(async () => {
       incompleteSeeds: summary.incompleteSeeds, errorsDatasetId: errors.id,
       partialPages: summary.partialPages, rejectedCards: summary.rejectedCards,
       ignoredPromotions: summary.ignoredPromotions,
+      detailEnrichments: summary.detailEnrichments,
     });
   }
   const summary = createSummary(state, output.ids.size, build);
-  if (summary.incompleteSeeds && config.failOnIncomplete) {
-    throw new Error(`Coleta incompleta: ${summary.incompleteSeeds} pesquisas. Consulte SUMMARY e o dataset de falhas ${errors.id}.`);
+  if ((summary.incompleteSeeds || summary.detailEnrichments.failed || summary.detailEnrichments.pending) && config.failOnIncomplete) {
+    throw new Error(`Coleta incompleta: ${summary.incompleteSeeds} pesquisas; ${summary.detailEnrichments.failed} detalhes falharam; ${summary.detailEnrichments.pending} pendentes. Consulte SUMMARY e o dataset de falhas ${errors.id}.`);
   }
-  if (summary.incompleteSeeds) log.warning('Coleta encerrada com cobertura parcial; consulte SUMMARY.');
+  if (summary.incompleteSeeds || summary.detailEnrichments.failed || summary.detailEnrichments.pending) {
+    log.warning('Coleta encerrada com cobertura ou metadados parciais; consulte SUMMARY.');
+  }
   else log.info('Coleta concluida com todas as pesquisas verificadas.');
 });

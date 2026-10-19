@@ -11,7 +11,7 @@
       "items": { "type": "string" },
       "editor": "stringList",
       "default": [],
-      "description": "Lista de URLs de pesquisa do Zap Imóveis. Cole aqui os links completos com filtros já aplicados."
+      "description": "Lista de URLs de pesquisa do Zap Imóveis. Cole os links completos com filtros já aplicados, inclusive tipos com várias categorias. O campo tipoImovel identifica o tipo de cada anúncio."
     },
     "usarProxy": {
       "title": "Usar proxy do Apify",
@@ -42,13 +42,13 @@
       "description": "Codigo do pais em duas letras. O proxy nao garante acesso a paginas bloqueadas."
     },
     "pageReadyTimeoutSecs": {
-      "title": "Prazo para carregamento da listagem",
+      "title": "Prazo para carregamento dos dados",
       "type": "integer",
       "editor": "number",
       "default": 30,
       "minimum": 1,
       "maximum": 90,
-      "description": "Aguarda cards estaveis ou uma mensagem explicita de pesquisa vazia."
+      "description": "Aguarda cards estaveis ou pesquisa vazia. Tambem limita a espera por imobiliaria e tipo nas consultas complementares ao detalhe."
     },
     "maxRequestsPerMinute": {
       "title": "Limite de requisicoes por minuto",
@@ -62,7 +62,7 @@
       "title": "Falhar quando a coleta estiver incompleta",
       "type": "boolean",
       "default": true,
-      "description": "Finaliza com erro se alguma pesquisa falhar ou atingir o limite de paginas antes do fim. Os dados validos e SUMMARY permanecem salvos."
+      "description": "Finaliza com erro se alguma pesquisa falhar, atingir o limite de paginas antes do fim ou alguma consulta complementar nao recuperar imobiliaria/tipo. Os dados validos e SUMMARY permanecem salvos."
     }
   },
   "required": ["links"]

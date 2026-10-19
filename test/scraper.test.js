@@ -4,7 +4,8 @@ import { performance } from 'node:perf_hooks';
 import { after, before, test } from 'node:test';
 import { chromium } from 'playwright';
 import { addTimeoutToPromise, tryCancel } from '@apify/timeout';
-import { extractListings, listingRejectionReason, normalizeListing, readListingDocument, waitForListings } from '../src/helpers/extract.js';
+import { extractDetail, extractListings, listingRejectionReason, normalizeListing, readListingDocument, waitForDetail, waitForListings } from '../src/helpers/extract.js';
+import { propertyType } from '../src/helpers/property-types.js';
 import { getPageNumber, pageSignature, resolvePagination, validateInput, validateSearchNavigation } from '../src/helpers/pagination.js';
 import { createSummary, ListingOutput, seedStatus } from '../src/helpers/output.js';
 
@@ -53,6 +54,7 @@ for (const [file, expectedCards, expectedTotal] of [
       assert.equal(report.totalCount, expectedTotal);
       assert.ok(report.items.every((record) => record.listingId && record.price && record.url.includes('/imovel/')));
       assert.ok(report.items.every((record) => record.imobiliaria));
+      assert.ok(report.items.every((record) => ['Apartamento', 'Cobertura'].includes(record.tipoImovel)));
       assert.equal(snapshot.rawItems.filter((record) => record.anunciosAgrupados != null).length, 1);
       const currentUrl = report.paginationLinks.find((link) => link.active)?.href || seed;
       const pagination = resolvePagination(report, currentUrl, 1);
@@ -94,6 +96,148 @@ test('structured fallback requires corroborated IDs and supports split flight ch
   await withPage(html + script(state.replace('"id":"123"', '"id":"999"')), (report) => {
     assert.equal(report.items.length, 1);
     assert.equal(report.rejectedCards, 1);
+  });
+});
+
+test('advertiser is matched by ID even when another card is absent from the state collection', async () => {
+  const html = `<li data-cy="rp-property-cd"><a href="/imovel/aluguel-apartamento-id-2909456270/">
+    <span data-cy="rp-cardProperty-location-txt">Grajau</span></a></li>
+    <li data-cy="rp-property-cd"><a href="/imovel/aluguel-casa-id-999/">
+    <span data-cy="rp-cardProperty-location-txt">Another property</span></a></li>`;
+  const state = { listings: [
+    { id: '2909456270', advertiser: { name: 'Agency from exact ID' }, unitType: 'APARTMENT' },
+  ], totalCount: 1 };
+  await withPage(`${html}<script>self.__next_f.push(${JSON.stringify([1, `5:${JSON.stringify(state)}\n`])})</script>`, (report) => {
+    assert.equal(report.items[0].imobiliaria, 'Agency from exact ID');
+    assert.equal(report.items[1].imobiliaria, null);
+    assert.equal(report.items[0].tipoImovel, 'Apartamento');
+    assert.equal(report.items[1].tipoImovel, 'Casa');
+  });
+});
+
+test('advertiser fallback checks both fields and never borrows another listing agency', async () => {
+  const state = { listings: [
+    { id: '123', realEstate: {}, advertiser: { name: 'Correct Agency' } },
+    { id: '999', advertiser: { name: 'Wrong Agency' } },
+  ], totalCount: 2 };
+  await withPage(`<li data-cy="rp-property-cd"><a href="${raw.href}">
+    <span data-cy="rp-cardProperty-location-txt">Barreiro</span></a></li>
+    <script id="__NEXT_DATA__" type="application/json">${JSON.stringify(state)}</script>`, (report) => {
+    assert.equal(report.items[0].imobiliaria, 'Correct Agency');
+  });
+});
+
+test('ambiguous advertiser names remain unresolved instead of selecting the first', async () => {
+  const state = { listings: [
+    { id: '123', advertiser: { name: 'Agency A' } },
+    { id: '123', advertiser: { name: 'Agency B' } },
+  ], totalCount: 2 };
+  await withPage(`<li data-cy="rp-property-cd"><a href="${raw.href}">
+    <span data-cy="rp-cardProperty-location-txt">Barreiro</span></a></li>
+    <script id="__NEXT_DATA__" type="application/json">${JSON.stringify(state)}</script>`, (report) => {
+    assert.equal(report.items[0].imobiliaria, null);
+  });
+});
+
+const types = [
+  ['APARTMENT', 'apartamento', 'Apartamento'],
+  ['HOME', 'casa', 'Casa'],
+  ['PENTHOUSE', 'cobertura', 'Cobertura'],
+  ['CONDOMINIUM', 'casa-de-condominio', 'Casa de Condom\u00ednio'],
+  ['BUSINESS', 'loja', 'Loja / Sal\u00e3o / Ponto Comercial'],
+  ['OFFICE', 'sala', 'Conjunto Comercial / Sala'],
+  ['COMMERCIAL_PROPERTY', 'casa-comercial', 'Casa Comercial'],
+  ['HOTEL', 'hotel', 'Hotel / Motel / Pousada'],
+  ['CORPORATE_FLOOR', 'andar', 'Andar / Laje Corporativa'],
+  ['BUILDING', 'predio', 'Pr\u00e9dio Inteiro'],
+  ['ALLOTMENT_LAND', 'terreno', 'Terreno / Lote'],
+  ['WAREHOUSE', 'galpao', 'Galp\u00e3o / Dep\u00f3sito / Armaz\u00e9m'],
+  ['GARAGE', 'garagem', 'Garagem'],
+];
+
+test('all 13 requested property categories work by structured code and by actual listing URL', () => {
+  for (const [code, slug, label] of types) {
+    assert.equal(propertyType([code]), label);
+    assert.equal(normalizeListing({ ...raw, href: `/imovel/venda-${slug}-id-123/` }, seed).tipoImovel, label);
+  }
+  assert.equal(propertyType(['APARTMENT', 'PENTHOUSE', 'DUPLEX']), 'Cobertura');
+  assert.equal(propertyType(['HOME', 'CONDOMINIUM']), 'Casa de Condom\u00ednio');
+  assert.equal(propertyType(['UNKNOWN']), null);
+  assert.equal(propertyType(['APARTMENT', 'HOME']), null);
+  assert.equal(propertyType(['OFFICE'], 'https://www.zapimoveis.com.br/imovel/venda-apartamento-id-123/'),
+    'Conjunto Comercial / Sala');
+  assert.equal(propertyType(['APARTMENT'], 'https://www.zapimoveis.com.br/imovel/venda-cobertura-id-123/'), 'Cobertura');
+  assert.equal(propertyType(['HOME'], 'https://www.zapimoveis.com.br/imovel/venda-casa-de-condominio-id-123/'),
+    'Casa de Condom\u00ednio');
+  assert.equal(normalizeListing({ ...raw, href: '/imovel/venda-unidade-id-123/' }, seed).tipoImovel, null);
+});
+
+test('mixed search returns the individual type instead of labeling everything as apartments', async () => {
+  const cards = types.map(([code, slug], index) => `<li data-cy="rp-property-cd">
+    <a href="/imovel/venda-${slug}-id-${index + 1}/"><span data-cy="rp-cardProperty-location-txt">Barreiro</span></a></li>`);
+  await withPage(cards.join(''), (report) => {
+    assert.deepEqual(report.items.map((record) => record.tipoImovel), types.map((type) => type[2]));
+  });
+  const mixed = new URL(seed);
+  const filters = 'apartamento_residencial,casa_residencial,cobertura_residencial,condominio_residencial,ponto-comercial_comercial,sala_comercial,imovel-comercial_comercial,hotel-motel-pousada_comercial,andar-loja-corporativa_comercial,predio_comercial,lote-terreno_comercial,galpao_comercial,garagem_comercial';
+  mixed.searchParams.set('tipos', filters);
+  const mixedUrl = mixed.href;
+  const nextUrl = `${mixedUrl}&pagina=2`;
+  assert.equal(resolvePagination({
+    statePage: 1, pagerPresent: true,
+    paginationLinks: [{ href: nextUrl, label: 'next', disabled: false }],
+  }, mixedUrl, 1).nextUrl, nextUrl);
+  assert.equal(new URL(nextUrl).searchParams.get('tipos'), filters);
+});
+
+test('detail waiting reports missing metadata and propagates cancellation', async () => {
+  const mock = {
+    url: () => item.url,
+    evaluate: async () => ({ blocked: false, detail: {
+      imobiliaria: null, propertyTypes: [], advertiserCandidates: [],
+    } }),
+  };
+  await assert.rejects(waitForDetail(mock, item, () => {}, 10), /sem imobiliaria ou tipo/);
+  let checks = 0;
+  await assert.rejects(waitForDetail(mock, item, () => {
+    if (++checks === 2) throw new Error('cancelled detail');
+  }, 500), /cancelled detail/);
+});
+
+test('detail extraction uses the requested ID and structured advertiser, not a recommended property', async () => {
+  const state = {
+    listing: { id: '2909456270', unitTypes: ['APARTMENT'] },
+    advertiser: { name: 'Detail Test Agency' },
+    recommendations: [{ id: '999', advertiser: { name: 'Other Agency' } }],
+  };
+  await withPage(`<script id="__NEXT_DATA__" type="application/json">${JSON.stringify(state)}</script>`, async (report, page) => {
+    const original = { ...item, listingId: '2909456270', imobiliaria: null,
+      url: 'https://www.zapimoveis.com.br/imovel/aluguel-apartamento-id-2909456270/' };
+    const mock = { url: () => original.url, evaluate: (...args) => page.evaluate(...args) };
+    const detail = await waitForDetail(mock, original, () => {}, 500);
+    assert.equal(detail.imobiliaria, 'Detail Test Agency');
+    assert.equal(detail.listingId, original.listingId);
+    assert.equal(detail.price, original.price);
+    await assert.rejects(extractDetail({ url: () => original.url.replace('2909456270', '999') }, original), /outro anuncio/);
+  });
+});
+
+test('detail DOM fallback ignores agencies in footer and recommendations', async () => {
+  await withPage(`<a href="/imobiliaria/1/"><img alt="Actual Agency"></a>
+    <footer><a href="/imobiliaria/2/">Footer Agency</a></footer>
+    <li data-cy="rp-property-cd"><a href="/imobiliaria/3/">Recommended Agency</a></li>`, async (report, page) => {
+    const mock = { url: () => item.url, evaluate: (...args) => page.evaluate(...args) };
+    assert.equal((await extractDetail(mock, item)).item.imobiliaria, 'Actual Agency');
+  });
+});
+
+test('detail JSON-LD seller is associated by listing URL and canonical mismatch fails', async () => {
+  const jsonLd = { '@type': 'RealEstateListing', url: item.url, seller: { name: 'Schema Agency' } };
+  await withPage(`<script type="application/ld+json">${JSON.stringify(jsonLd)}</script>`, async (report, page) => {
+    const mock = { url: () => item.url, evaluate: (...args) => page.evaluate(...args) };
+    assert.equal((await extractDetail(mock, item)).item.imobiliaria, 'Schema Agency');
+    await page.setContent('<link rel="canonical" href="https://www.zapimoveis.com.br/imovel/venda-casa-id-999/">');
+    await assert.rejects(extractDetail(mock, item), /Canonical/);
   });
 });
 
